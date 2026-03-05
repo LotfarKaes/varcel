@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Production Scaling Checklist — 10K Users</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0b0c0f;
+    --surface: #13151a;
+    --border: #1e2128;
+    --accent: #00e5a0;
+    --accent2: #ff5c5c;
+    --accent3: #5c8fff;
+    --text: #e8eaf0;
+    --muted: #6b7280;
+    --done-bg: #0d1f17;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    padding: 40px 20px 80px;
+  }
+
+  .hero {
+    max-width: 860px;
+    margin: 0 auto 48px;
+    text-align: center;
+  }
+
+  .badge {
+    display: inline-block;
+    background: var(--accent);
+    color: #000;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .12em;
+    padding: 4px 12px;
+    border-radius: 100px;
+    margin-bottom: 20px;
+  }
+
+  h1 {
+    font-size: clamp(2rem, 5vw, 3.6rem);
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -.03em;
+    margin-bottom: 14px;
+  }
+
+  h1 span { color: var(--accent); }
+
+  .subtitle {
+    color: var(--muted);
+    font-size: 1rem;
+    font-weight: 400;
+  }
+
+  .progress-bar-wrap {
+    max-width: 860px;
+    margin: 0 auto 48px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .progress-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .bar-track {
+    flex: 1;
+    background: var(--border);
+    border-radius: 100px;
+    height: 8px;
+    overflow: hidden;
+  }
+
+  .bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent3));
+    border-radius: 100px;
+    transition: width .4s ease;
+  }
+
+  .progress-count {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+
+  .phase {
+    max-width: 860px;
+    margin: 0 auto 32px;
+  }
+
+  .phase-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .phase-num {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+
+  .phase-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    letter-spacing: -.01em;
+  }
+
+  .phase-desc {
+    font-size: .8rem;
+    color: var(--muted);
+    font-weight: 400;
+    margin-left: 4px;
+  }
+
+  .tasks { display: flex; flex-direction: column; gap: 8px; }
+
+  .task {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+    user-select: none;
+  }
+
+  .task:hover { border-color: var(--accent); }
+
+  .task.done {
+    background: var(--done-bg);
+    border-color: #1a3028;
+  }
+
+  .task.done .task-title { text-decoration: line-through; color: var(--muted); }
+  .task.done .task-detail { color: #374840; }
+
+  .checkbox {
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    border: 2px solid var(--border);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1px;
+    transition: all .2s;
+  }
+
+  .task.done .checkbox {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .check-svg { display: none; }
+  .task.done .check-svg { display: block; }
+
+  .task-body { flex: 1; }
+
+  .task-title {
+    font-size: .92rem;
+    font-weight: 600;
+    margin-bottom: 3px;
+    transition: color .2s;
+  }
+
+  .task-detail {
+    font-family: 'DM Mono', monospace;
+    font-size: .73rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .priority {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 100px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .p-critical { background: #2d1010; color: var(--accent2); }
+  .p-high { background: #1c1a10; color: #f5c842; }
+  .p-medium { background: #101a2d; color: var(--accent3); }
+
+  /* Phase colors */
+  .c1 { background: #0f2d1e; color: var(--accent); }
+  .c2 { background: #1a1020; color: #a855f7; }
+  .c3 { background: #0f1a2d; color: var(--accent3); }
+  .c4 { background: #2d1a10; color: #f97316; }
+  .c5 { background: #2d1010; color: var(--accent2); }
+  .c6 { background: #1a2d10; color: #84cc16; }
+  .c7 { background: #10282d; color: #22d3ee; }
+  .c8 { background: #2d1a1a; color: #fb923c; }
+
+  .reset-btn {
+    display: block;
+    margin: 48px auto 0;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    padding: 10px 24px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .reset-btn:hover { border-color: var(--accent2); color: var(--accent2); }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="badge">FULL-STACK · PRODUCTION READY</div>
+  <h1>Scale to <span>10,000</span> Users<br>Step-by-Step</h1>
+  <p class="subtitle">Click each task to mark it done. Work through phases in order.</p>
+</div>
+
+<div class="progress-bar-wrap">
+  <span class="progress-label">OVERALL PROGRESS</span>
+  <div class="bar-track"><div class="bar-fill" id="barFill" style="width:0%"></div></div>
+  <span class="progress-count" id="progressCount">0 / 0</span>
+</div>
+
+<div id="phases"></div>
+
+<button class="reset-btn" onclick="resetAll()">↺ Reset All</button>
+
+<script>
+const phases = [
+  {
+    id: 1, color: 'c1',
+    title: 'Environment & Configuration',
+    desc: 'Separate secrets from code',
+    tasks: [
+      { title: 'Move all secrets to environment variables', detail: '.env files for local · never commit secrets to git · use .gitignore', priority: 'critical' },
+      { title: 'Create separate configs: dev / staging / production', detail: 'NODE_ENV=production disables debug logs · enables optimizations', priority: 'critical' },
+      { title: 'Audit and remove all console.log / debug output', detail: 'Debug logs slow down prod and leak internal data', priority: 'high' },
+      { title: 'Set strong CORS policy', detail: 'Whitelist only your actual domain(s), not wildcard *', priority: 'high' },
+    ]
+  },
+  {
+    id: 2, color: 'c2',
+    title: 'Database Hardening',
+    desc: 'The #1 bottleneck at scale',
+    tasks: [
+      { title: 'Add indexes to every column used in WHERE / JOIN / ORDER BY', detail: 'Run EXPLAIN ANALYZE on your top 10 queries · huge performance win', priority: 'critical' },
+      { title: 'Enable connection pooling', detail: 'Use PgBouncer (Postgres) or built-in pool · prevents "too many connections" crash', priority: 'critical' },
+      { title: 'Set up automated daily backups with restore test', detail: 'Use pg_dump / mongodump · test restore monthly · store offsite', priority: 'critical' },
+      { title: 'Audit and fix N+1 query problems', detail: 'Use ORM eager loading (include/joins) · log slow queries in dev', priority: 'high' },
+      { title: 'Add read replica for heavy read traffic', detail: 'Route SELECT queries to replica · writes go to primary only', priority: 'medium' },
+    ]
+  },
+  {
+    id: 3, color: 'c3',
+    title: 'Backend & API',
+    desc: 'Reliability and speed under load',
+    tasks: [
+      { title: 'Add rate limiting on all API endpoints', detail: 'Use express-rate-limit / nginx limit_req · 100 req/min per IP is a good start', priority: 'critical' },
+      { title: 'Add input validation and sanitization everywhere', detail: 'Use Zod / Joi / express-validator · never trust user input', priority: 'critical' },
+      { title: 'Implement caching layer with Redis', detail: 'Cache DB results, sessions, expensive computations · TTL based invalidation', priority: 'high' },
+      { title: 'Add request timeout handling', detail: 'Set 30s timeout on all external calls · return 504 gracefully', priority: 'high' },
+      { title: 'Use async error handling middleware (no unhandled rejections)', detail: 'Wrap all async routes in try/catch or use asyncHandler wrapper', priority: 'high' },
+      { title: 'Add health check endpoint GET /health', detail: 'Returns 200 OK with uptime · required for load balancers / k8s probes', priority: 'medium' },
+    ]
+  },
+  {
+    id: 4, color: 'c4',
+    title: 'Frontend Performance',
+    desc: 'Fast load times = more users stay',
+    tasks: [
+      { title: 'Run production build with minification & tree-shaking', detail: 'npm run build · check bundle size with source-map-explorer', priority: 'critical' },
+      { title: 'Enable code splitting & lazy loading', detail: 'React.lazy() for routes · reduces initial JS payload significantly', priority: 'high' },
+      { title: 'Compress all images — convert to WebP', detail: 'Use squoosh / imagemin · WebP is 25-35% smaller than JPEG/PNG', priority: 'high' },
+      { title: 'Set up CDN for all static assets', detail: 'CloudFront / Cloudflare / Vercel Edge · serve JS/CSS/images from edge nodes', priority: 'high' },
+      { title: 'Add Gzip/Brotli compression to server responses', detail: 'Enable compression in nginx or Express · 60-80% size reduction', priority: 'high' },
+      { title: 'Run Lighthouse audit and hit 90+ scores', detail: 'Fix LCP, CLS, FID · use Chrome DevTools Performance tab', priority: 'medium' },
+    ]
+  },
+  {
+    id: 5, color: 'c5',
+    title: 'Security',
+    desc: 'Non-negotiable before going live',
+    tasks: [
+      { title: 'Enable HTTPS everywhere — get SSL certificate', detail: "Let's Encrypt (free) or your host's cert · redirect all HTTP → HTTPS", priority: 'critical' },
+      { title: 'Add security headers (Helmet.js or nginx)', detail: 'X-Frame-Options, CSP, X-XSS-Protection, HSTS, Referrer-Policy', priority: 'critical' },
+      { title: 'Protect against SQL injection / NoSQL injection', detail: 'Use parameterized queries · never interpolate user input into queries', priority: 'critical' },
+      { title: 'Hash all passwords with bcrypt (cost factor 12+)', detail: 'Never store plain or MD5/SHA1 passwords · use bcrypt or argon2', priority: 'critical' },
+      { title: 'Implement CSRF protection on all state-changing routes', detail: 'Use csurf middleware or SameSite cookie attribute', priority: 'high' },
+      { title: 'Set up dependency vulnerability scanning', detail: 'Run npm audit · integrate snyk or dependabot in CI/CD', priority: 'high' },
+    ]
+  },
+  {
+    id: 6, color: 'c6',
+    title: 'Infrastructure & Hosting',
+    desc: 'Where your app actually lives',
+    tasks: [
+      { title: 'Choose and set up a cloud provider', detail: 'AWS / GCP / DigitalOcean / Railway / Render · match to your budget & skill', priority: 'critical' },
+      { title: 'Containerize with Docker', detail: 'Write Dockerfile + docker-compose.yml · ensures consistent environments', priority: 'high' },
+      { title: 'Set up a reverse proxy with Nginx', detail: 'Handles SSL termination, static files, load balancing, compression', priority: 'high' },
+      { title: 'Configure auto-scaling or horizontal scaling rules', detail: 'Min 2 instances · scale up at 70% CPU · use load balancer', priority: 'high' },
+      { title: 'Use a process manager (PM2 or systemd)', detail: 'Auto-restarts on crash · cluster mode uses all CPU cores', priority: 'high' },
+      { title: 'Set up staging environment that mirrors production', detail: 'Test every deploy on staging before pushing to prod', priority: 'medium' },
+    ]
+  },
+  {
+    id: 7, color: 'c7',
+    title: 'Monitoring & Logging',
+    desc: "Know when things break before users do",
+    tasks: [
+      { title: 'Set up centralized logging (structured JSON logs)', detail: 'Use Winston / Pino · ship logs to Datadog / Logtail / Papertrail', priority: 'critical' },
+      { title: 'Add uptime monitoring with alerting', detail: 'Better Uptime / UptimeRobot · SMS/email alert if site goes down', priority: 'critical' },
+      { title: 'Set up error tracking (Sentry or similar)', detail: 'Catches unhandled exceptions in frontend + backend · shows stack traces', priority: 'critical' },
+      { title: 'Add application performance monitoring (APM)', detail: 'Datadog APM / New Relic · track response times, DB query duration', priority: 'high' },
+      { title: 'Set alert thresholds for CPU, memory, disk, DB connections', detail: 'Alert at 80% of limits · gives time to respond before crash', priority: 'high' },
+    ]
+  },
+  {
+    id: 8, color: 'c8',
+    title: 'CI/CD & Deployment',
+    desc: 'Ship safely, ship fast',
+    tasks: [
+      { title: 'Set up CI pipeline (GitHub Actions / GitLab CI)', detail: 'Auto-run tests on every PR · block merge if tests fail', priority: 'high' },
+      { title: 'Write and run automated tests before every deploy', detail: 'Unit + integration tests · aim for 70%+ coverage on critical paths', priority: 'high' },
+      { title: 'Use zero-downtime deployment strategy', detail: 'Blue/green or rolling deploy · no maintenance windows for users', priority: 'high' },
+      { title: 'Set up automated database migration on deploy', detail: 'Use Flyway / Liquibase / Prisma migrate · never run migrations manually in prod', priority: 'high' },
+      { title: 'Document rollback procedure and test it', detail: 'Know exactly how to revert a bad deploy in under 5 minutes', priority: 'medium' },
+    ]
+  },
+];
+
+const STORAGE_KEY = 'prod_checklist_v1';
+
+function loadDone() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch { return {}; }
+}
+
+function saveDone(done) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(done));
+}
+
+let done = loadDone();
+
+function updateProgress() {
+  const allIds = phases.flatMap(p => p.tasks.map((_, i) => `${p.id}-${i}`));
+  const doneCount = allIds.filter(id => done[id]).length;
+  const pct = Math.round((doneCount / allIds.length) * 100);
+  document.getElementById('barFill').style.width = pct + '%';
+  document.getElementById('progressCount').textContent = `${doneCount} / ${allIds.length}`;
+}
+
+function toggleTask(phaseId, taskIdx) {
+  const key = `${phaseId}-${taskIdx}`;
+  done[key] = !done[key];
+  saveDone(done);
+  const el = document.querySelector(`[data-key="${key}"]`);
+  el.classList.toggle('done', done[key]);
+  updateProgress();
+}
+
+function resetAll() {
+  if (!confirm('Reset all progress?')) return;
+  done = {};
+  saveDone(done);
+  document.querySelectorAll('.task.done').forEach(el => el.classList.remove('done'));
+  updateProgress();
+}
+
+function render() {
+  const container = document.getElementById('phases');
+  phases.forEach(phase => {
+    const phaseEl = document.createElement('div');
+    phaseEl.className = 'phase';
+
+    phaseEl.innerHTML = `
+      <div class="phase-header">
+        <div class="phase-num ${phase.color}">${String(phase.id).padStart(2,'0')}</div>
+        <div>
+          <span class="phase-title">${phase.title}</span>
+          <span class="phase-desc">— ${phase.desc}</span>
+        </div>
+      </div>
+      <div class="tasks">
+        ${phase.tasks.map((t, i) => {
+          const key = `${phase.id}-${i}`;
+          const isDone = !!done[key];
+          return `
+            <div class="task ${isDone ? 'done' : ''}" data-key="${key}" onclick="toggleTask(${phase.id}, ${i})">
+              <div class="checkbox">
+                <svg class="check-svg" width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M2 6l3 3 5-5" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <div class="task-body">
+                <div class="task-title">${t.title}</div>
+                <div class="task-detail">${t.detail}</div>
+              </div>
+              <span class="priority p-${t.priority}">${t.priority}</span>
+            </div>`;
+        }).join('')}
+      </div>`;
+
+    container.appendChild(phaseEl);
+  });
+  updateProgress();
+}
+
+render();
+</script>
+</body>
+</html>
